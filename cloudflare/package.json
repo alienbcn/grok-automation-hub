@@ -1,0 +1,14 @@
+{
+  "name": "grok-automation-hub-cf",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@cloudflare/playwright-mcp": "latest"
+  },
+  "devDependencies": {
+    "wrangler": "latest"
+  }
+}
