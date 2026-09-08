@@ -1,0 +1,19 @@
+services:
+  hub:
+    build: .
+    ports:
+      - "8931:8931"
+    environment:
+      PORT: "8931"
+      HOST: "0.0.0.0"
+      BROWSER: chromium
+      HEADLESS: "true"
+      USER_DATA_DIR: /data/profile
+      SHARED_BROWSER_CONTEXT: "true"
+      ALLOWED_HOSTS: "*"
+      PLAYWRIGHT_MCP_PING_TIMEOUT_MS: "30000"
+    volumes:
+      - playwright-profile:/data/profile
+    restart: unless-stopped
+volumes:
+  playwright-profile:

@@ -1,0 +1,10 @@
+node_modules/
+.playwright-profile/
+data/
+*.log
+.env
+.env.local
+.DS_Store
+dist/
+.idea/
+.vscode/
