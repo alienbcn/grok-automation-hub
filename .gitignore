@@ -4,6 +4,7 @@ data/
 *.log
 .env
 .env.local
+.vercel
 .DS_Store
 dist/
 .idea/
