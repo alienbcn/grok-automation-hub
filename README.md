@@ -1,23 +1,18 @@
 # Grok Automation Hub
 
-Nucleo de automatizacion: Grok habla con este servidor MCP; el navegador lo mueve el Playwright MCP oficial.
+Two tracks:
 
-```
-Grok -> Custom Connector -> https://TU-DOMINIO/mcp
-    -> @playwright/mcp -> Chrome/Chromium -> web
-```
+1. **Etsy Open API v3** (priority) — HTTP MCP on Vercel. No VPS.
+2. **Playwright MCP** (optional) — browser only when there is no API.
 
-## Fase 1
+Etsy app: `grok-automations` (Pending Personal Approval). Code will not call Etsy until `ETSY_ALLOW_LIVE=true`.
 
-Solo TodoMVC. Tools core unicamente.
+## Etsy endpoints (after Vercel)
 
-## Local
+- `/mcp` — Grok Custom Connector
+- `/auth/etsy` — start OAuth + PKCE
+- `/auth/etsy/callback` — register this exact URI in Etsy
+- `/webhooks/etsy` — ORDER events
+- `/health`
 
-```bash
-npm install
-npx playwright install chromium
-cp .env.example .env
-npm start
-```
-
-Endpoint: `http://localhost:8931/mcp`
+See `docs/etsy.md`.

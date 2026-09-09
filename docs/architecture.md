@@ -1,5 +1,9 @@
 # Architecture
 
-Grok Chat -> Custom MCP Connector (HTTPS /mcp) -> Hub -> official @playwright/mcp -> Chrome -> web
+Etsy path (no VPS):
 
-Vercel is not for persistent Chrome. Use a VPS + Docker for 24/7.
+Grok -> Custom Connector -> https://<vercel>/mcp -> Hub tools -> Etsy Open API v3 -> shop
+
+Tokens: Supabase (`supabase/etsy.sql`) or env after first OAuth.
+
+Browser path remains `scripts/start.mjs` + `@playwright/mcp` for sites without API.
