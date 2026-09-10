@@ -1,9 +1,9 @@
 {
   "name": "grok-automation-hub",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Grok Automation Hub — Etsy Open API MCP + optional Playwright",
+  "description": "Grok Automation Hub — Etsy Open API MCP + optional remote Playwright via Browserbase",
   "engines": { "node": ">=20" },
   "scripts": {
     "start": "node scripts/start.mjs",
@@ -12,7 +12,9 @@
     "test:todomvc": "node tests/todomvc.smoke.mjs"
   },
   "dependencies": {
+    "@browserbasehq/sdk": "^2.6.0",
     "@playwright/mcp": "latest",
-    "@supabase/supabase-js": "^2.45.0"
+    "@supabase/supabase-js": "^2.45.0",
+    "playwright-core": "^1.55.0"
   }
 }

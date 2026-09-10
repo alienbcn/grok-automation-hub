@@ -2,17 +2,19 @@
 
 Two tracks:
 
-1. **Etsy Open API v3** (priority) — HTTP MCP on Vercel. No VPS.
-2. **Playwright MCP** (optional) — browser only when there is no API.
+1. **Etsy Open API v3** (priority) — HTTP MCP on Vercel. No VPS. Never Playwright for Etsy.
+2. **Remote browser** — Browserbase + Playwright CDP when a site has no adequate API.
+3. **Local Playwright MCP** (optional) — `npm start` on a machine that can run Chromium.
 
-Etsy app: `grok-automations` (Pending Personal Approval). Code will not call Etsy until `ETSY_ALLOW_LIVE=true`.
+Etsy app: `grok-automations`. Code will not call Etsy until `ETSY_ALLOW_LIVE=true`.
 
-## Etsy endpoints (after Vercel)
+## Endpoints
 
-- `/mcp` — Grok Custom Connector
+- `/mcp` — Grok Custom Connector (Etsy tools)
 - `/auth/etsy` — start OAuth + PKCE
 - `/auth/etsy/callback` — register this exact URI in Etsy
-- `/webhooks/etsy` — ORDER events
+- `/webhooks/etsy` — ORDER events (POST)
 - `/health`
+- `/browser/smoke` — non-destructive Browserbase + Playwright check
 
-See `docs/etsy.md`.
+See `docs/etsy.md` and `docs/browserbase.md`.

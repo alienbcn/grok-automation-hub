@@ -1,6 +1,7 @@
 import { handleEtsyAuthStart, handleEtsyAuthCallback } from "../etsy/oauth.mjs";
 import { handleEtsyWebhook } from "../etsy/webhooks.mjs";
 import { handleMcp } from "../mcp/http.mjs";
+import { browserbaseConfigured, runSmokeTest } from "../browser/remote.mjs";
 
 function json(status, data, extraHeaders = {}) {
   return {
@@ -24,6 +25,7 @@ export async function handleRequest({ method, url, headers, body }) {
         callback: "/auth/etsy/callback",
         webhooks: "/webhooks/etsy",
         health: "/health",
+        browserSmoke: "/browser/smoke",
       },
     });
   }
@@ -33,8 +35,15 @@ export async function handleRequest({ method, url, headers, body }) {
       ok: true,
       etsyKeyConfigured: Boolean(process.env.ETSY_API_KEY),
       supabaseConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY),
+      browserbaseConfigured: browserbaseConfigured(),
       approvalGate: process.env.ETSY_ALLOW_LIVE === "true" ? "live" : "pending",
     });
+  }
+
+  if (method === "GET" && path === "/browser/smoke") {
+    const result = await runSmokeTest();
+    const status = result.skipped ? 412 : result.ok ? 200 : 502;
+    return json(status, result);
   }
 
   if (method === "GET" && path === "/auth/etsy") return handleEtsyAuthStart(url);
