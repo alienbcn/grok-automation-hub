@@ -11,10 +11,15 @@ Vercel orchestrates. It does not install a permanent Chromium.
 
 ## Environment (Vercel only)
 
+Required:
+
 - `BROWSERBASE_API_KEY`
+
+Optional (usually unused; the key already identifies the project):
+
 - `BROWSERBASE_PROJECT_ID`
 
-Do not commit values. Do not put them in GitHub.
+Do not commit values. Do not put them in GitHub. Do not paste them in chat.
 
 ## Smoke test
 
@@ -23,7 +28,7 @@ Do not commit values. Do not put them in GitHub.
 Opens `https://example.com/`, reads the document title, closes the session.
 No login. No Etsy.
 
-If env vars are missing the handler returns HTTP 412 and does not call Browserbase.
+If the API key is missing the handler returns HTTP 412 and does not call Browserbase.
 
 ## Local Playwright MCP
 

@@ -1,6 +1,7 @@
 /**
  * Remote browser via Browserbase + Playwright CDP.
  * Isolated from Etsy. Never used for Etsy shop actions.
+ * Project is resolved from BROWSERBASE_API_KEY; project id is optional.
  */
 import Browserbase from "@browserbasehq/sdk";
 import { chromium } from "playwright-core";
@@ -8,13 +9,12 @@ import { chromium } from "playwright-core";
 const SMOKE_URL = "https://example.com/";
 
 export function browserbaseConfigured() {
-  return Boolean(process.env.BROWSERBASE_API_KEY && process.env.BROWSERBASE_PROJECT_ID);
+  return Boolean(process.env.BROWSERBASE_API_KEY);
 }
 
 function missingEnv() {
   const missing = [];
   if (!process.env.BROWSERBASE_API_KEY) missing.push("BROWSERBASE_API_KEY");
-  if (!process.env.BROWSERBASE_PROJECT_ID) missing.push("BROWSERBASE_PROJECT_ID");
   return missing;
 }
 
@@ -51,11 +51,14 @@ export async function runSmokeTest() {
 
   try {
     const bb = new Browserbase({ apiKey: process.env.BROWSERBASE_API_KEY });
-    session = await bb.sessions.create({
-      projectId: process.env.BROWSERBASE_PROJECT_ID,
+    const createOpts = {
       timeout: 60,
       browserSettings: { recordSession: false },
-    });
+    };
+    if (process.env.BROWSERBASE_PROJECT_ID) {
+      createOpts.projectId = process.env.BROWSERBASE_PROJECT_ID;
+    }
+    session = await bb.sessions.create(createOpts);
     result.BROWSERBASE = "OK";
     result.sessionId = session.id;
 
