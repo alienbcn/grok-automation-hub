@@ -18,7 +18,8 @@ export async function handleRequest({ method, url, headers, body }) {
     return json(200, {
       name: "grok-automation-hub",
       etsy_app: "grok-automations",
-      status: "etsy_calls_blocked_until_personal_approval",
+      etsyAppAccess: "personal",
+      status: "etsy_live_calls_require_ETSY_ALLOW_LIVE_and_oauth",
       endpoints: {
         mcp: "/mcp",
         auth: "/auth/etsy",
@@ -31,12 +32,15 @@ export async function handleRequest({ method, url, headers, body }) {
   }
 
   if (method === "GET" && path === "/health") {
+    const allowLive = process.env.ETSY_ALLOW_LIVE === "true";
     return json(200, {
       ok: true,
+      etsyAppAccess: "personal",
       etsyKeyConfigured: Boolean(process.env.ETSY_API_KEY),
       supabaseConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY),
       browserbaseConfigured: browserbaseConfigured(),
-      approvalGate: process.env.ETSY_ALLOW_LIVE === "true" ? "live" : "pending",
+      allowLive,
+      approvalGate: allowLive ? "live" : "allow_live_off",
     });
   }
 
