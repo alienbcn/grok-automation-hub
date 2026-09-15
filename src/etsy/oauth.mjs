@@ -27,6 +27,12 @@ function html(status, text) {
   };
 }
 
+function apiKeyHeader() {
+  const key = process.env.ETSY_API_KEY;
+  const secret = process.env.ETSY_SHARED_SECRET;
+  return secret ? `${key}:${secret}` : key;
+}
+
 export function getRedirectUri(requestUrl) {
   if (process.env.ETSY_REDIRECT_URI) return process.env.ETSY_REDIRECT_URI;
   if (process.env.PUBLIC_BASE_URL) {
@@ -68,6 +74,19 @@ export async function handleEtsyAuthStart(requestUrl) {
   };
 }
 
+async function resolveShopId(accessToken) {
+  const res = await fetch("https://api.etsy.com/v3/application/users/me", {
+    headers: {
+      "x-api-key": apiKeyHeader(),
+      authorization: `Bearer ${accessToken}`,
+      accept: "application/json",
+    },
+  });
+  const me = await res.json().catch(() => ({}));
+  if (me?.shop_id) return String(me.shop_id);
+  return process.env.ETSY_SHOP_ID || null;
+}
+
 export async function handleEtsyAuthCallback(requestUrl) {
   const err = requestUrl.searchParams.get("error");
   if (err) return html(400, `Etsy OAuth error: ${err} ${requestUrl.searchParams.get("error_description") || ""}`);
@@ -83,7 +102,6 @@ export async function handleEtsyAuthCallback(requestUrl) {
     );
   }
   const key = process.env.ETSY_API_KEY;
-  const secret = process.env.ETSY_SHARED_SECRET;
   const redirectUri = getRedirectUri(requestUrl);
   const body = new URLSearchParams({
     grant_type: "authorization_code",
@@ -96,25 +114,37 @@ export async function handleEtsyAuthCallback(requestUrl) {
     method: "POST",
     headers: {
       "content-type": "application/x-www-form-urlencoded",
-      "x-api-key": secret ? `${key}:${secret}` : key,
+      "x-api-key": apiKeyHeader(),
     },
     body,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) return html(400, `Token exchange failed: ${JSON.stringify(data)}`);
-  await saveTokens({
+  const baseTokens = {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
     expiresAt: Date.now() + Number(data.expires_in || 3600) * 1000,
     tokenType: data.token_type,
     scopes: String(data.scope || DEFAULT_SCOPES),
-  });
-  return html(200, "Etsy connected. You can close this window and use /mcp tools.");
+  };
+  await saveTokens(baseTokens);
+  let shopId = null;
+  try {
+    shopId = await resolveShopId(data.access_token);
+    if (shopId) await saveTokens({ ...baseTokens, shopId });
+  } catch {
+    // tokens already saved; shop_id can be set later via ETSY_SHOP_ID
+  }
+  return html(
+    200,
+    shopId
+      ? `Etsy connected. shop_id=${shopId}. You can close this window and use /mcp tools.`
+      : "Etsy connected (shop_id not returned yet — set ETSY_SHOP_ID after the shop is open). You can close this window."
+  );
 }
 
 export async function refreshAccessToken(refreshToken) {
   const key = process.env.ETSY_API_KEY;
-  const secret = process.env.ETSY_SHARED_SECRET;
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     client_id: key,
@@ -124,7 +154,7 @@ export async function refreshAccessToken(refreshToken) {
     method: "POST",
     headers: {
       "content-type": "application/x-www-form-urlencoded",
-      "x-api-key": secret ? `${key}:${secret}` : key,
+      "x-api-key": apiKeyHeader(),
     },
     body,
   });
