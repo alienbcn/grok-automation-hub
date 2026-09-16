@@ -132,8 +132,11 @@ function isPrivateOrLocalHost(hostname) {
     if (a === 192 && b === 168) return true;
     if (a === 172 && b >= 16 && b <= 31) return true;
   }
-  // IPv6 unique-local / link-local
-  if (host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80")) return true;
+  // IPv6 unique-local / link-local — only for IP literals, not domains (e.g. fcbarcelona.com)
+  const looksLikeIpv6 = host.includes(":") && /^[0-9a-f:]+$/i.test(host);
+  if (looksLikeIpv6 && (host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80"))) {
+    return true;
+  }
   return false;
 }
 

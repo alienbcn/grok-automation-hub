@@ -353,8 +353,9 @@ describe("TikTok refresh and status", () => {
     assert.equal("refreshToken" in out, false);
     assert.equal("openId" in out, false);
     assert.equal(out.openIdPresent, true);
-    const stripped = stripSecrets({ access_token: "act.x", tokenValid: true, secretConfigured: true });
+    const stripped = stripSecrets({ access_token: "act.x", accessToken: "act.x", tokenValid: true, secretConfigured: true });
     assert.equal(stripped.access_token, "[redacted]");
+    assert.equal(stripped.accessToken, "[redacted]");
     assert.equal(stripped.tokenValid, true);
     assert.equal(stripped.secretConfigured, true);
   });
@@ -728,6 +729,28 @@ describe("Grok audit P0–P2 fixes", () => {
       assert.equal(parsed.access_token, "[redacted]");
       assert.equal(parsed.nested.refresh_token, "[redacted]");
       assert.equal(parsed.tokenValid, true);
+    } finally {
+      tool.handler = orig;
+    }
+  });
+
+  it("MCP tools/call redacts camelCase accessToken via stripSecrets", async () => {
+    const tool = TIKTOK_TOOLS.find((t) => t.name === "tiktok_status");
+    const orig = tool.handler;
+    tool.handler = async () => ({
+      ok: true,
+      accessToken: "act.x",
+      tokenValid: true,
+      secretConfigured: true,
+    });
+    try {
+      const { body } = await mcp("tools/call", { name: "tiktok_status", arguments: {} });
+      const text = body.result.content[0].text;
+      assert.equal(text.includes("act.x"), false);
+      const parsed = JSON.parse(text);
+      assert.equal(parsed.accessToken, "[redacted]");
+      assert.equal(parsed.tokenValid, true);
+      assert.equal(parsed.secretConfigured, true);
     } finally {
       tool.handler = orig;
     }

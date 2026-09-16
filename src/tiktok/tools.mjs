@@ -13,7 +13,7 @@ import {
   defaultTikTokScopes,
 } from "./oauth.mjs";
 
-const SECRET_KEY = /^(access_token|refresh_token|client_secret|client_key|secret|verifier|authorization)$/i;
+const SECRET_KEY = /token|secret|client_key|verifier|authorization/i;
 
 export function stripSecrets(value, key = "") {
   if (SECRET_KEY.test(key) && typeof value === "string") return "[redacted]";
