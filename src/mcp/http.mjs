@@ -1,4 +1,7 @@
 import { ETSY_TOOLS } from "../etsy/tools.mjs";
+import { TIKTOK_TOOLS } from "../tiktok/tools.mjs";
+
+const ALL_TOOLS = [...ETSY_TOOLS, ...TIKTOK_TOOLS];
 
 function json(status, data, extra = {}) {
   return {
@@ -16,6 +19,10 @@ function rpcError(id, code, message) {
   return json(200, { jsonrpc: "2.0", id: id ?? null, error: { code, message } });
 }
 
+export function listToolNames() {
+  return ALL_TOOLS.map((t) => t.name);
+}
+
 export async function handleMcp({ method, headers, body }) {
   const token = process.env.MCP_BEARER_TOKEN;
   if (token) {
@@ -24,9 +31,9 @@ export async function handleMcp({ method, headers, body }) {
   }
   if (method === "GET") {
     return json(200, {
-      name: "grok-automation-hub-etsy",
+      name: "grok-automation-hub",
       transport: "http",
-      tools: ETSY_TOOLS.map((t) => t.name),
+      tools: ALL_TOOLS.map((t) => t.name),
     });
   }
   if (method !== "POST") return json(405, { error: "method_not_allowed" });
@@ -41,13 +48,13 @@ export async function handleMcp({ method, headers, body }) {
     return rpcResult(id, {
       protocolVersion: params?.protocolVersion || "2024-11-05",
       capabilities: { tools: {} },
-      serverInfo: { name: "grok-automation-hub-etsy", version: "0.2.0" },
+      serverInfo: { name: "grok-automation-hub", version: "0.3.0" },
     });
   }
   if (rpc === "notifications/initialized") return json(204, {});
   if (rpc === "tools/list") {
     return rpcResult(id, {
-      tools: ETSY_TOOLS.map((t) => ({
+      tools: ALL_TOOLS.map((t) => ({
         name: t.name,
         description: t.description,
         inputSchema: t.inputSchema,
@@ -57,7 +64,7 @@ export async function handleMcp({ method, headers, body }) {
   if (rpc === "tools/call") {
     const name = params?.name;
     const args = params?.arguments || {};
-    const tool = ETSY_TOOLS.find((t) => t.name === name);
+    const tool = ALL_TOOLS.find((t) => t.name === name);
     if (!tool) return rpcError(id, -32601, `Unknown tool ${name}`);
     try {
       const result = await tool.handler(args);

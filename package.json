@@ -3,13 +3,16 @@
   "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Grok Automation Hub — Etsy Open API MCP + optional remote Playwright via Browserbase",
-  "engines": { "node": ">=20" },
+  "description": "Grok Automation Hub \u2014 Etsy Open API MCP + TikTok Login Kit/Content Posting API + optional remote Playwright via Browserbase",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node scripts/start.mjs",
     "start:etsy": "node scripts/etsy-http.mjs",
     "browsers": "npx playwright install chromium",
-    "test:todomvc": "node tests/todomvc.smoke.mjs"
+    "test:todomvc": "node tests/todomvc.smoke.mjs",
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@browserbasehq/sdk": "^2.6.0",
