@@ -3,6 +3,9 @@ const mem = {
   tokens: null,
 };
 
+/** OAuth state TTL: 15 minutes */
+const OAUTH_STATE_TTL_MS = 15 * 60 * 1000;
+
 function supabaseEnabled() {
   return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
@@ -30,18 +33,28 @@ export async function saveTikTokOauthSession({ state, verifier = null, createdAt
   });
 }
 
+function isExpiredOauthSession(createdAt) {
+  if (!createdAt || !Number.isFinite(createdAt)) return true;
+  return Date.now() - createdAt > OAUTH_STATE_TTL_MS;
+}
+
 export async function takeTikTokOauthSession(state) {
   if (supabaseEnabled()) {
     const client = await sb();
     const { data } = await client.from("tiktok_oauth_sessions").select("*").eq("state", state).maybeSingle();
     if (data) {
       await client.from("tiktok_oauth_sessions").delete().eq("state", state);
-      return { verifier: data.verifier, createdAt: Date.parse(data.created_at) };
+      const createdAt = Date.parse(data.created_at);
+      // Expired OAuth state (>15 min) — treat as invalid
+      if (isExpiredOauthSession(createdAt)) return null;
+      return { verifier: data.verifier, createdAt };
     }
   }
   const row = mem.oauth.get(state);
   mem.oauth.delete(state);
-  return row || null;
+  if (!row) return null;
+  if (isExpiredOauthSession(row.createdAt)) return null;
+  return row;
 }
 
 function toRow(tokens) {

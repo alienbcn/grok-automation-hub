@@ -52,6 +52,19 @@ function userFromInfo(result) {
   return result?.data?.data?.user || result?.data?.user || null;
 }
 
+function accountGateError(check) {
+  return {
+    ok: false,
+    status: 403,
+    error: {
+      code: check.reason,
+      message: check.message,
+      expectedUsername: check.expectedUsername,
+      actualUsername: check.actualUsername || null,
+    },
+  };
+}
+
 export const TIKTOK_TOOLS = [
   {
     name: "tiktok_status",
@@ -90,18 +103,7 @@ export const TIKTOK_TOOLS = [
         openId: user?.open_id,
         username: user?.username,
       });
-      if (check.mismatch) {
-        return {
-          ok: false,
-          status: 403,
-          error: {
-            code: check.reason,
-            message: check.message,
-            expectedUsername: check.expectedUsername,
-            actualUsername: check.actualUsername || null,
-          },
-        };
-      }
+      if (check.mismatch) return accountGateError(check);
       return { ok: true, user: user || result.data };
     },
   },
@@ -114,6 +116,11 @@ export const TIKTOK_TOOLS = [
       if (result.gated) return result;
       if (!result.ok) return result;
       const user = userFromInfo(result) || {};
+      const check = checkTikTokAccount({
+        openId: user.open_id,
+        username: user.username,
+      });
+      if (check.mismatch) return accountGateError(check);
       return {
         ok: true,
         username: user.username || null,

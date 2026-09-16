@@ -1,5 +1,6 @@
 -- TikTok tables are separate from Etsy (etsy_oauth_sessions / etsy_tokens).
 -- Run in the same Supabase project; do not reuse Etsy tables.
+-- OAuth state TTL (15 minutes) is enforced in takeTikTokOauthSession, not via DB trigger.
 
 create table if not exists tiktok_oauth_sessions (
   state text primary key,

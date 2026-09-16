@@ -3,13 +3,15 @@
 Official TikTok APIs only. No scraping, Playwright, or browser login.
 Target creator: **@albertosusarte**. Inbox drafts only — **not** public publish.
 
-Live token exchange and API calls require `TIKTOK_ALLOW_LIVE=true`.
+Live token exchange and API calls require `TIKTOK_ALLOW_LIVE=true`. Without it, the OAuth callback acknowledges the code but does **not** hit the token endpoint or save tokens.
+
+This Hub is **not** claiming TikTok app approval or that inbox drafts work in production — those depend on TikTok Developer Console status and verified URL properties.
 
 ## What this Hub does
 
 - Login Kit (web OAuth) to connect @albertosusarte
 - Read user.info (basic / profile / stats)
-- Upload a **draft** to the creator inbox (`video.upload`, `PULL_FROM_URL`)
+- Upload a **draft** to the creator inbox (`video.upload`, `PULL_FROM_URL`) when the video URL domain is verified
 - Poll publish status for that `publish_id`
 
 ## What this Hub does not do
@@ -17,6 +19,22 @@ Live token exchange and API calls require `TIKTOK_ALLOW_LIVE=true`.
 - `video.publish` is never requested
 - Direct public posting is never called (`/v2/post/publish/video/init/` is unused)
 - No RPM, revenue, shop, or invented analytics
+- `FILE_UPLOAD` (chunked bytes) is pending post-MVP and is not implemented
+
+## Blocking account gate
+
+After token exchange + user.info, the callback **blocks** unmatched accounts:
+
+- Username present and not `@albertosusarte` (or `TIKTOK_EXPECTED_USERNAME`) → **403**, tokens **not** saved
+- `TIKTOK_EXPECTED_OPEN_ID` set and `open_id` differs → **403**, existing tokens **not** overwritten
+- Username missing **and** `TIKTOK_EXPECTED_OPEN_ID` empty → **403** `username_unavailable`, tokens **not** saved
+- Save only when username matches expected, **or** `open_id` matches `TIKTOK_EXPECTED_OPEN_ID` and username is absent or matches
+
+The same gate runs on MCP tools `tiktok_user_info` and `tiktok_stats` (returns `{ ok:false, status:403, error:{ code, message, expectedUsername, actualUsername } }`).
+
+After the first good OAuth as @albertosusarte, copy `open_id` into `TIKTOK_EXPECTED_OPEN_ID` so a different TikTok account cannot overwrite tokens.
+
+HTML callback responses never include tokens or secrets.
 
 ## Redirect URI
 
@@ -24,10 +42,12 @@ Register **exactly** this in TikTok Developers (Login Kit for Web):
 
 `https://grok-automation-hub.vercel.app/auth/tiktok/callback`
 
+`tiktok_oauth_start` / authorize session refuse non-https redirect URIs (except localhost) with `redirect_uri_not_ready` — set `TIKTOK_REDIRECT_URI` or `PUBLIC_BASE_URL`.
+
 Hub routes:
 
 - `GET /auth/tiktok` — 302 to TikTok authorize
-- `GET /auth/tiktok/callback` — state check, token exchange, username/open_id gate
+- `GET /auth/tiktok/callback` — state check (15 min TTL), token exchange, username/open_id gate
 - MCP tool `tiktok_oauth_start` — returns the same authorize URL as JSON
 
 ## Scopes
@@ -41,11 +61,11 @@ user.info.basic,user.info.profile,user.info.stats,video.list,video.upload
 ## OAuth (web)
 
 1. `GET https://www.tiktok.com/v2/auth/authorize/` with `client_key`, comma-separated `scope`, `response_type=code`, `redirect_uri`, `state`
-2. Web apps typically **do not** send PKCE (`code_verifier` is for mobile/desktop). `state` is stored in Supabase `tiktok_oauth_sessions`.
+2. Web apps typically **do not** send PKCE (`code_verifier` is for mobile/desktop). `state` is stored in Supabase `tiktok_oauth_sessions` (15-minute TTL).
 3. `POST https://open.tiktokapis.com/v2/oauth/token/` (`application/x-www-form-urlencoded`)
    - code: `client_key`, `client_secret`, `code`, `grant_type=authorization_code`, `redirect_uri`
    - refresh: `client_key`, `client_secret`, `grant_type=refresh_token`, `refresh_token`
-4. Callback fetches user.info when possible. If `username` is present and not `albertosusarte`, tokens are **not** saved. If `TIKTOK_EXPECTED_OPEN_ID` is set and differs, tokens are **not** saved.
+4. Callback fetches user.info when possible, then applies the blocking account gate above.
 
 ## Inbox draft upload
 
@@ -62,9 +82,9 @@ user.info.basic,user.info.profile,user.info.stats,video.list,video.upload
 
 Returns `publish_id`. The creator finishes the post in the TikTok app via inbox notification (`SEND_TO_USER_INBOX`).
 
-**PULL_FROM_URL requires the URL prefix/domain to be verified** in TikTok Developers.
+**PULL_FROM_URL requires the URL prefix/domain to be verified** in TikTok Developers → URL properties. If TikTok returns `url_ownership_unverified` (or HTTP 403 with that code), the Hub propagates that code with a hint to verify the domain — it never simulates success.
 
-Vercel serverless bodies are small — do **not** send video bytes or huge base64 through MCP. Host the file on a verified HTTPS URL.
+`video_url` must be an absolute `https` URL. Rejected: `http`, `file`, `data`, `javascript` schemes; localhost / `127.0.0.1` / `0.0.0.0`; private IPs. `file_base64` is rejected at the tool layer (Vercel body limits).
 
 ## Publish status
 
@@ -87,10 +107,15 @@ Supabase tables in `supabase/tiktok.sql` (separate from Etsy):
 
 Memory Map is a local fallback only. Production must use Supabase (Vercel instances do not share memory).
 
-Tokens are never logged. `tiktok_status` and `/health` only expose booleans and username.
+Tokens are never logged. `tiktok_status` and `/health` only expose booleans and username. MCP `tools/call` runs responses through `stripSecrets` (redacts matching secret key names).
 
 ## Env
 
 See `.env.example`. Secrets stay in Vercel — never in git or chat.
 
-After first successful OAuth, copy `open_id` into `TIKTOK_EXPECTED_OPEN_ID` so a different TikTok account cannot overwrite tokens.
+| Variable | Notes |
+| --- | --- |
+| `TIKTOK_ALLOW_LIVE` | Must be `true` for token exchange and live API calls |
+| `TIKTOK_EXPECTED_USERNAME` | Default `albertosusarte` |
+| `TIKTOK_EXPECTED_OPEN_ID` | Set after first good OAuth |
+| `TIKTOK_REDIRECT_URI` / `PUBLIC_BASE_URL` | Production callback as above |

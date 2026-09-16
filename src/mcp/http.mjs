@@ -1,5 +1,5 @@
 import { ETSY_TOOLS } from "../etsy/tools.mjs";
-import { TIKTOK_TOOLS } from "../tiktok/tools.mjs";
+import { TIKTOK_TOOLS, stripSecrets } from "../tiktok/tools.mjs";
 
 const ALL_TOOLS = [...ETSY_TOOLS, ...TIKTOK_TOOLS];
 
@@ -69,7 +69,7 @@ export async function handleMcp({ method, headers, body }) {
     try {
       const result = await tool.handler(args);
       return rpcResult(id, {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(stripSecrets(result), null, 2) }],
       });
     } catch (e) {
       return rpcResult(id, {

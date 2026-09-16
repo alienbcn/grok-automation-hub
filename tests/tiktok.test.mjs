@@ -464,3 +464,272 @@ describe("MCP hub coexistence", () => {
     assert.match(out.error.message, /file_base64 is not supported/);
   });
 });
+
+describe("Grok audit P0–P2 fixes", () => {
+  beforeEach(() => {
+    restoreEnv();
+    tiktokEnv();
+    resetTikTokMemory();
+    globalThis.fetch = origFetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = origFetch;
+    restoreEnv();
+    resetTikTokMemory();
+  });
+
+  it("happy callback with username albertosusarte saves tokens; status has no access_token", async () => {
+    await saveTikTokOauthSession({ state: "happy-st", createdAt: Date.now() });
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes("/oauth/token/")) {
+        return jsonRes(200, {
+          access_token: "act.happy-secret",
+          refresh_token: "rft.happy-secret",
+          expires_in: 86400,
+          refresh_expires_in: 31536000,
+          open_id: "oid-alberto",
+          scope: "user.info.basic,user.info.profile,video.upload",
+          token_type: "Bearer",
+        });
+      }
+      if (u.includes("/user/info/")) {
+        return jsonRes(200, {
+          data: { user: { open_id: "oid-alberto", username: "albertosusarte", display_name: "Alberto" } },
+          error: { code: "ok" },
+        });
+      }
+      return jsonRes(500, { error: "unexpected" });
+    };
+    const res = await handleTikTokAuthCallback(
+      new URL("https://grok-automation-hub.vercel.app/auth/tiktok/callback?code=ok-code&state=happy-st"),
+    );
+    assert.equal(res.status, 200);
+    assert.match(res.body, /albertosusarte/);
+    assert.equal(res.body.includes("act.happy-secret"), false);
+    const tokens = await getTikTokTokens();
+    assert.equal(tokens.accessToken, "act.happy-secret");
+    assert.equal(tokens.username, "albertosusarte");
+    const statusTool = TIKTOK_TOOLS.find((t) => t.name === "tiktok_status");
+    const status = await statusTool.handler({});
+    const statusDump = JSON.stringify(status);
+    assert.equal(statusDump.includes("act.happy-secret"), false);
+    assert.equal(statusDump.includes("access_token"), false);
+    assert.equal("accessToken" in status, false);
+    const mcpOut = await mcp("tools/call", { name: "tiktok_status", arguments: {} });
+    assert.equal(mcpOut.body.result.content[0].text.includes("act.happy-secret"), false);
+  });
+
+  it("callback without username and without TIKTOK_EXPECTED_OPEN_ID returns 403 and does not save", async () => {
+    delete process.env.TIKTOK_EXPECTED_OPEN_ID;
+    await saveTikTokOauthSession({ state: "no-user-st", createdAt: Date.now() });
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes("/oauth/token/")) {
+        return jsonRes(200, {
+          access_token: "act.no-user",
+          refresh_token: "rft.no-user",
+          expires_in: 86400,
+          open_id: "oid-unknown",
+          scope: "user.info.basic",
+          token_type: "Bearer",
+        });
+      }
+      if (u.includes("/user/info/")) {
+        return jsonRes(200, {
+          data: { user: { open_id: "oid-unknown", display_name: "NoUsername" } },
+          error: { code: "ok" },
+        });
+      }
+      return jsonRes(500, {});
+    };
+    const res = await handleTikTokAuthCallback(
+      new URL("https://grok-automation-hub.vercel.app/auth/tiktok/callback?code=c&state=no-user-st"),
+    );
+    assert.equal(res.status, 403);
+    assert.match(res.body, /username unavailable|username_unavailable|TIKTOK_EXPECTED_OPEN_ID/i);
+    assert.equal(await getTikTokTokens(), null);
+  });
+
+  it("TIKTOK_ALLOW_LIVE !== true does not hit token endpoint and does not save", async () => {
+    process.env.TIKTOK_ALLOW_LIVE = "false";
+    await saveTikTokOauthSession({ state: "gated-st", createdAt: Date.now() });
+    let tokenHits = 0;
+    globalThis.fetch = async (url) => {
+      if (String(url).includes("/oauth/token/")) {
+        tokenHits += 1;
+        return jsonRes(200, { access_token: "should-not-save" });
+      }
+      return jsonRes(500, {});
+    };
+    const res = await handleTikTokAuthCallback(
+      new URL("https://grok-automation-hub.vercel.app/auth/tiktok/callback?code=c&state=gated-st"),
+    );
+    assert.equal(res.status, 200);
+    assert.match(res.body, /TIKTOK_ALLOW_LIVE/);
+    assert.equal(tokenHits, 0);
+    assert.equal(await getTikTokTokens(), null);
+  });
+
+  it("initInboxVideo / tiktok_upload_draft sends PULL_FROM_URL and video_url", async () => {
+    await saveTikTokTokens({
+      accessToken: "act.live",
+      refreshToken: "rft.live",
+      openId: "oid-1",
+      username: "albertosusarte",
+      scopes: "video.upload",
+      expiresAt: Date.now() + 120_000,
+    });
+    let capturedBody = null;
+    let capturedUrl = null;
+    globalThis.fetch = async (url, opts) => {
+      capturedUrl = String(url);
+      if (opts?.body) capturedBody = JSON.parse(opts.body);
+      return jsonRes(200, {
+        data: { publish_id: "v_inbox_file~test123" },
+        error: { code: "ok" },
+      });
+    };
+    const tool = TIKTOK_TOOLS.find((t) => t.name === "tiktok_upload_draft");
+    const out = await tool.handler({ video_url: "https://cdn.verified.example/video.mp4" });
+    assert.equal(out.ok, true);
+    assert.equal(out.publish_id, "v_inbox_file~test123");
+    assert.ok(capturedUrl.includes("/v2/post/publish/inbox/video/init/"));
+    assert.equal(capturedBody.source_info.source, "PULL_FROM_URL");
+    assert.equal(capturedBody.source_info.video_url, "https://cdn.verified.example/video.mp4");
+  });
+
+  it("rejects http:// and empty video_url for inbox init", async () => {
+    await saveTikTokTokens({
+      accessToken: "act.live",
+      refreshToken: "rft.live",
+      openId: "oid-1",
+      username: "albertosusarte",
+      scopes: "video.upload",
+      expiresAt: Date.now() + 120_000,
+    });
+    let fetchHits = 0;
+    globalThis.fetch = async () => {
+      fetchHits += 1;
+      return jsonRes(200, { data: { publish_id: "nope" }, error: { code: "ok" } });
+    };
+    const tool = TIKTOK_TOOLS.find((t) => t.name === "tiktok_upload_draft");
+    const httpOut = await tool.handler({ video_url: "http://cdn.example/v.mp4" });
+    assert.equal(httpOut.ok, false);
+    assert.equal(httpOut.status, 400);
+    const emptyOut = await tool.handler({ video_url: "" });
+    assert.equal(emptyOut.ok, false);
+    assert.equal(emptyOut.status, 400);
+    assert.equal(fetchHits, 0);
+  });
+
+  it("propagates url_ownership_unverified from TikTok inbox init", async () => {
+    await saveTikTokTokens({
+      accessToken: "act.live",
+      refreshToken: "rft.live",
+      openId: "oid-1",
+      username: "albertosusarte",
+      scopes: "video.upload",
+      expiresAt: Date.now() + 120_000,
+    });
+    globalThis.fetch = async () =>
+      jsonRes(403, {
+        error: { code: "url_ownership_unverified", message: "The domain is not verified" },
+      });
+    const tool = TIKTOK_TOOLS.find((t) => t.name === "tiktok_upload_draft");
+    const out = await tool.handler({ video_url: "https://unverified.example/v.mp4" });
+    assert.equal(out.ok, false);
+    assert.equal(out.error.code, "url_ownership_unverified");
+    assert.match(out.error.hint || "", /URL properties|propiedad verificada/i);
+  });
+
+  it("tiktok_publish_status POSTs /v2/post/publish/status/fetch/ with publish_id", async () => {
+    await saveTikTokTokens({
+      accessToken: "act.live",
+      refreshToken: "rft.live",
+      openId: "oid-1",
+      username: "albertosusarte",
+      scopes: "video.upload",
+      expiresAt: Date.now() + 120_000,
+    });
+    let capturedUrl = null;
+    let capturedBody = null;
+    let capturedMethod = null;
+    globalThis.fetch = async (url, opts) => {
+      capturedUrl = String(url);
+      capturedMethod = opts?.method || "GET";
+      if (opts?.body) capturedBody = JSON.parse(opts.body);
+      return jsonRes(200, {
+        data: { status: "SEND_TO_USER_INBOX" },
+        error: { code: "ok" },
+      });
+    };
+    const tool = TIKTOK_TOOLS.find((t) => t.name === "tiktok_publish_status");
+    const out = await tool.handler({ publish_id: "v_inbox_file~abc" });
+    assert.equal(out.ok, true);
+    assert.equal(capturedMethod, "POST");
+    assert.ok(capturedUrl.includes("/v2/post/publish/status/fetch/"));
+    assert.deepEqual(capturedBody, { publish_id: "v_inbox_file~abc" });
+  });
+
+  it("tiktok_stats with username otra returns 403", async () => {
+    await saveTikTokTokens({
+      accessToken: "act.live",
+      refreshToken: "rft.live",
+      openId: "oid-other",
+      username: "otra",
+      scopes: "user.info.stats",
+      expiresAt: Date.now() + 120_000,
+    });
+    globalThis.fetch = async (url) => {
+      if (String(url).includes("/user/info/")) {
+        return jsonRes(200, {
+          data: {
+            user: {
+              open_id: "oid-other",
+              username: "otra",
+              follower_count: 99,
+              following_count: 1,
+              likes_count: 2,
+              video_count: 3,
+            },
+          },
+          error: { code: "ok" },
+        });
+      }
+      return jsonRes(500, {});
+    };
+    const tool = TIKTOK_TOOLS.find((t) => t.name === "tiktok_stats");
+    const out = await tool.handler({});
+    assert.equal(out.ok, false);
+    assert.equal(out.status, 403);
+    assert.equal(out.error.code, "username_mismatch");
+    assert.equal(out.error.expectedUsername, "albertosusarte");
+    assert.equal(out.error.actualUsername, "otra");
+    assert.equal("follower_count" in out, false);
+  });
+
+  it("MCP tools/call redacts access_token via stripSecrets", async () => {
+    const tool = TIKTOK_TOOLS.find((t) => t.name === "tiktok_status");
+    const orig = tool.handler;
+    tool.handler = async () => ({
+      ok: true,
+      access_token: "act.leaked-from-handler",
+      nested: { refresh_token: "rft.also-leaked" },
+      tokenValid: true,
+    });
+    try {
+      const { body } = await mcp("tools/call", { name: "tiktok_status", arguments: {} });
+      const text = body.result.content[0].text;
+      assert.equal(text.includes("act.leaked-from-handler"), false);
+      assert.equal(text.includes("rft.also-leaked"), false);
+      assert.ok(text.includes("[redacted]"));
+      const parsed = JSON.parse(text);
+      assert.equal(parsed.access_token, "[redacted]");
+      assert.equal(parsed.nested.refresh_token, "[redacted]");
+      assert.equal(parsed.tokenValid, true);
+    } finally {
+      tool.handler = orig;
+    }
+  });
+});

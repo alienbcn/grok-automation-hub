@@ -114,18 +114,104 @@ export async function listTikTokVideos({ cursor, max_count = 10 } = {}) {
   });
 }
 
-export async function initInboxVideo({ video_url }) {
-  if (!video_url) {
-    return { ok: false, status: 400, error: { message: "video_url required (PULL_FROM_URL). Do not send huge base64 on Vercel." } };
+function isPrivateOrLocalHost(hostname) {
+  const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host) return true;
+  if (host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0" || host === "::1") {
+    return true;
   }
-  return tiktokRequest("POST", "/v2/post/publish/inbox/video/init/", {
+  // IPv4 private / link-local
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (m) {
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    if (a === 10) return true;
+    if (a === 127) return true;
+    if (a === 0) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+  }
+  // IPv6 unique-local / link-local
+  if (host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80")) return true;
+  return false;
+}
+
+/** Reject unsafe video_url schemes/hosts. Require absolute https. */
+export function validatePullFromUrl(video_url) {
+  if (video_url == null || String(video_url).trim() === "") {
+    return {
+      ok: false,
+      status: 400,
+      error: { message: "video_url required (PULL_FROM_URL). Do not send huge base64 on Vercel." },
+    };
+  }
+  let parsed;
+  try {
+    parsed = new URL(String(video_url));
+  } catch {
+    return {
+      ok: false,
+      status: 400,
+      error: { code: "invalid_video_url", message: "video_url must be an absolute https URL" },
+    };
+  }
+  const scheme = parsed.protocol.replace(/:$/, "").toLowerCase();
+  if (scheme !== "https") {
+    return {
+      ok: false,
+      status: 400,
+      error: {
+        code: "invalid_video_url",
+        message: `video_url scheme "${scheme}" rejected; only https is allowed`,
+      },
+    };
+  }
+  if (isPrivateOrLocalHost(parsed.hostname)) {
+    return {
+      ok: false,
+      status: 400,
+      error: {
+        code: "invalid_video_url",
+        message: "video_url must not target localhost or private IP addresses",
+      },
+    };
+  }
+  return { ok: true, video_url: parsed.toString() };
+}
+
+const URL_OWNERSHIP_HINT =
+  "Verifica el dominio o URL prefix de este vídeo en TikTok Developers → URL properties. PULL_FROM_URL exige propiedad verificada.";
+
+export async function initInboxVideo({ video_url }) {
+  const validated = validatePullFromUrl(video_url);
+  if (!validated.ok) return validated;
+
+  const result = await tiktokRequest("POST", "/v2/post/publish/inbox/video/init/", {
     json: {
       source_info: {
         source: "PULL_FROM_URL",
-        video_url,
+        video_url: validated.video_url,
       },
     },
   });
+
+  if (result.gated) return result;
+  if (!result.ok) {
+    const code = result.error?.code;
+    if (code === "url_ownership_unverified" || (result.status === 403 && code === "url_ownership_unverified")) {
+      return {
+        ok: false,
+        status: result.status || 403,
+        error: {
+          code: "url_ownership_unverified",
+          message: result.error?.message || "url_ownership_unverified",
+          hint: URL_OWNERSHIP_HINT,
+        },
+      };
+    }
+  }
+  return result;
 }
 
 export async function fetchPublishStatus(publish_id) {

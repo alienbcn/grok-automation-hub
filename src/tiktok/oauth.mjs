@@ -53,8 +53,16 @@ export function defaultTikTokScopes() {
   return parts.join(",");
 }
 
+/** Normalize: strip leading @, lowercase. Default: albertosusarte. */
 export function expectedTikTokUsername() {
-  return String(process.env.TIKTOK_EXPECTED_USERNAME || "albertosusarte").replace(/^@/, "");
+  return String(process.env.TIKTOK_EXPECTED_USERNAME || "albertosusarte")
+    .replace(/^@/, "")
+    .toLowerCase();
+}
+
+export function normalizeTikTokUsername(username) {
+  if (username == null || username === "") return null;
+  return String(username).replace(/^@/, "").toLowerCase();
 }
 
 export function getTikTokRedirectUri(requestUrl) {
@@ -68,29 +76,48 @@ export function getTikTokRedirectUri(requestUrl) {
   return "";
 }
 
+/**
+ * Account gate for OAuth callback and MCP tools.
+ * Save only when:
+ *   username === expected
+ *   OR (open_id === TIKTOK_EXPECTED_OPEN_ID AND (username absent OR username === expected))
+ */
 export function checkTikTokAccount({ openId, username }) {
   const expectedOpenId = process.env.TIKTOK_EXPECTED_OPEN_ID || "";
-  const expectedUsername = expectedTikTokUsername().toLowerCase();
-  if (expectedOpenId && openId && openId !== expectedOpenId) {
+  const expectedUsername = expectedTikTokUsername();
+  const normalized = normalizeTikTokUsername(username);
+
+  if (normalized && normalized !== expectedUsername) {
+    return {
+      mismatch: true,
+      reason: "username_mismatch",
+      expectedUsername,
+      actualUsername: username,
+      message: `Connected TikTok username "${username}" is not @${expectedUsername}. Tokens were not saved.`,
+    };
+  }
+
+  if (expectedOpenId && openId !== expectedOpenId) {
     return {
       mismatch: true,
       reason: "open_id_mismatch",
       expectedUsername,
+      actualUsername: username || null,
       message: "Connected TikTok open_id does not match TIKTOK_EXPECTED_OPEN_ID. Tokens were not saved.",
     };
   }
-  if (username) {
-    const normalized = String(username).replace(/^@/, "").toLowerCase();
-    if (normalized !== expectedUsername) {
-      return {
-        mismatch: true,
-        reason: "username_mismatch",
-        expectedUsername,
-        actualUsername: username,
-        message: `Connected TikTok username "${username}" is not @${expectedUsername}. Tokens were not saved.`,
-      };
-    }
+
+  if (!normalized && !expectedOpenId) {
+    return {
+      mismatch: true,
+      reason: "username_unavailable",
+      expectedUsername,
+      actualUsername: null,
+      message:
+        "TikTok username unavailable and TIKTOK_EXPECTED_OPEN_ID is not set. Tokens were not saved.",
+    };
   }
+
   return { mismatch: false, expectedUsername };
 }
 
@@ -130,8 +157,9 @@ export async function createTikTokAuthorizeSession(requestUrl) {
   const redirectUri = getTikTokRedirectUri(requestUrl);
   if (!redirectUri.startsWith("https://") && !redirectUri.includes("localhost")) {
     return {
+      ok: false,
       error: "redirect_uri_not_ready",
-      hint: "Set PUBLIC_BASE_URL or TIKTOK_REDIRECT_URI after Vercel deploy",
+      hint: "Set TIKTOK_REDIRECT_URI o PUBLIC_BASE_URL",
     };
   }
   const scopes = defaultTikTokScopes();
@@ -275,17 +303,18 @@ export async function handleTikTokAuthCallback(requestUrl) {
     username = user?.username || null;
     if (user?.open_id && !tokens.openId) tokens.openId = user.open_id;
   } catch {
-    // username optional until profile scope is granted
+    // username may be absent until profile scope is granted
   }
   tokens.username = username;
   const check = checkTikTokAccount({ openId: tokens.openId, username });
   if (check.mismatch) {
+    // Never include tokens/secrets in HTML
     return html(403, check.message);
   }
   await saveTikTokTokens(tokens);
   const nameNote = username
     ? `username=@${username}`
-    : "username not returned (profile scope may be pending)";
+    : "username not returned (matched via TIKTOK_EXPECTED_OPEN_ID)";
   return html(
     200,
     `TikTok connected. ${nameNote}. open_id stored. You can close this window and use /mcp tools. Draft inbox upload only — no public publish.`,
